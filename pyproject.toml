@@ -1,24 +1,19 @@
-[project]
+[tool.poetry]
 name = "project_2-zagrebina-m26-555"
 version = "0.1.0"
 description = ""
-authors = [
-    {name = "Victoria Zagrebina",email = "seventeen.joker@gmail.com"}
-]
+authors = ["Victoria Zagrebina <seventeen.joker@gmail.com>"]
 readme = "README.md"
-requires-python = ">=3.9"
-dependencies = [
+packages = [
+    { include = "primitive_db", from = "src" }
 ]
 
+[tool.poetry.dependencies]
+python = ">=3.12"
+
+[tool.poetry.scripts]
+project = "primitive_db.main:main"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
-
-[tool.poetry]
-packages = [
-    { include = "src"},
-]
-
-[tool.poetry.scripts]
-project = "src.primitive_db.main:main"
