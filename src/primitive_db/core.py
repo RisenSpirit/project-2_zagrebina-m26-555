@@ -1,8 +1,11 @@
+from .utils import load_table_data
+
 VALID_TYPES = {"int", "str", "bool"}
+TYPE_MAP = {"int": int, "str": str, "bool": bool}
 
 
 def create_table(metadata, table_name, columns):
-    """Создаёт таблицу."""
+    """Создаёт таблицу. В начало автоматически добавляется столбец ID:int."""
     if table_name in metadata:
         print(f'Ошибка: Таблица "{table_name}" уже существует.')
         return metadata
@@ -18,12 +21,8 @@ def create_table(metadata, table_name, columns):
             print(f"Некорректное значение: {col}. Попробуйте снова.")
             return metadata
         name, col_type = col.split(":")
-        if not name or col_type not in VALID_TYPES:
+        if not name or col_type not in VALID_TYPES or name in seen:
             print(f"Некорректное значение: {col}. Попробуйте снова.")
-            return metadata
-        if name in seen:
-            print(f'Некорректное значение: столбец "{name}" указан дважды. '
-                  "Попробуйте снова.")
             return metadata
         seen.add(name)
         parsed.append({"name": name, "type": col_type})
@@ -35,7 +34,7 @@ def create_table(metadata, table_name, columns):
 
 
 def drop_table(metadata, table_name):
-    """Удаляет таблицу."""
+    """Удаляет таблицу из метаданных."""
     if table_name not in metadata:
         print(f'Ошибка: Таблица "{table_name}" не существует.')
         return metadata
@@ -52,3 +51,80 @@ def list_tables(metadata):
         return
     for name in metadata:
         print(f"- {name}")
+
+
+def check_type(value, col_type):
+    """Проверяет, что значение соответствует типу столбца.
+
+    bool — подкласс int в Python, поэтому True не считается int.
+    """
+    if col_type == "int":
+        return isinstance(value, int) and not isinstance(value, bool)
+    return isinstance(value, TYPE_MAP[col_type])
+
+
+def insert(metadata, table_name, values):
+    """Добавляет запись в таблицу. ID генерируется автоматически.
+
+    values — список уже разобранных значений без ID.
+    Возвращает обновлённые данные таблицы или None при ошибке.
+    """
+    if table_name not in metadata:
+        print(f'Ошибка: Таблица "{table_name}" не существует.')
+        return None
+
+    data_columns = metadata[table_name]["columns"][1:]  # все столбцы, кроме ID
+    if len(values) != len(data_columns):
+        print(f"Некорректное значение: ожидается {len(data_columns)} значений, "
+              f"получено {len(values)}. Попробуйте снова.")
+        return None
+
+    record = {}
+    for col, value in zip(data_columns, values):
+        if not check_type(value, col["type"]):
+            print(f'Некорректное значение: {value!r} для столбца '
+                  f'{col["name"]}:{col["type"]}. Попробуйте снова.')
+            return None
+        record[col["name"]] = value
+
+    table_data = load_table_data(table_name)
+    new_id = max((row["ID"] for row in table_data), default=0) + 1
+    table_data.append({"ID": new_id, **record})
+    print(f'Запись с ID={new_id} успешно добавлена в таблицу "{table_name}".')
+    return table_data
+
+
+def _matches(row, where_clause):
+    return all(row.get(col) == val for col, val in where_clause.items())
+
+
+def select(table_data, where_clause=None):
+    """Возвращает все записи или только подходящие под where_clause."""
+    if not where_clause:
+        return table_data
+    return [row for row in table_data if _matches(row, where_clause)]
+
+
+def update(table_data, set_clause, where_clause):
+    """Обновляет поля set_clause в записях, подходящих под where_clause."""
+    for row in table_data:
+        if _matches(row, where_clause):
+            row.update(set_clause)
+    return table_data
+
+
+def delete(table_data, where_clause):
+    """Удаляет записи, подходящие под where_clause."""
+    return [row for row in table_data if not _matches(row, where_clause)]
+
+
+def info(metadata, table_name, table_data):
+    """Выводит информацию о таблице."""
+    if table_name not in metadata:
+        print(f'Ошибка: Таблица "{table_name}" не существует.')
+        return
+    columns = metadata[table_name]["columns"]
+    cols_str = ", ".join(f'{c["name"]}:{c["type"]}' for c in columns)
+    print(f"Таблица: {table_name}")
+    print(f"Столбцы: {cols_str}")
+    print(f"Количество записей: {len(table_data)}")
