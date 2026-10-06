@@ -1,11 +1,13 @@
 from .constants import (
     ASSIGN_SIGN,
+    CLOSE_BRACKET,
     FALSE_VALUE,
     KW_FROM,
     KW_INTO,
     KW_SET,
     KW_VALUES,
     KW_WHERE,
+    OPEN_BRACKET,
     QUOTES,
     TRUE_VALUE,
     VALUES_SEPARATOR,
@@ -96,7 +98,7 @@ def parse_insert(text):
     head, sep, tail = text.partition(KW_VALUES)
     words, tail = head.split(), tail.strip()
     if (not sep or len(words) != 3 or words[1] != KW_INTO
-            or not tail.startswith("(") or not tail.endswith(")")):
+            or not tail.startswith(OPEN_BRACKET) or not tail.endswith(CLOSE_BRACKET)):
         raise command_error(text)
     return words[2], parse_values(tail[1:-1])
 

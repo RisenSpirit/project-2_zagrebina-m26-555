@@ -3,7 +3,17 @@ import shlex
 import prompt
 from prettytable import PrettyTable
 
-from .constants import ID_COLUMN, PROMPT_TEXT
+from .constants import (
+    CMD_CREATE_TABLE,
+    CMD_EXIT,
+    CMD_HELP,
+    CMD_INSERT,
+    CMD_LIST_TABLES,
+    COL_NAME_KEY,
+    COLUMNS_KEY,
+    ID_COLUMN,
+    PROMPT_TEXT,
+)
 from .core import (
     check_clause,
     create_table,
@@ -61,7 +71,7 @@ def print_help():
 
 def print_rows(metadata, table_name, rows):
     """Выводит записи в виде таблицы PrettyTable."""
-    names = [c["name"] for c in metadata[table_name]["columns"]]
+    names = [c[COL_NAME_KEY] for c in metadata[table_name][COLUMNS_KEY]]
     table = PrettyTable()
     table.field_names = names
     for row in rows:
@@ -176,9 +186,9 @@ def handle_info(metadata, user_input):
 
 
 COMMANDS = {
-    "create_table": handle_create_table,
+    CMD_CREATE_TABLE: handle_create_table,
     "drop_table": handle_drop_table,
-    "insert": handle_insert,
+    CMD_INSERT: handle_insert,
     "select": handle_select,
     "update": handle_update,
     "delete": handle_delete,
@@ -204,14 +214,13 @@ def run():
 
         command = user_input.split()[0].lower()
 
-        match command:
-            case "exit":
-                break
-            case "help":
-                print_help()
-            case "list_tables":
-                list_tables(metadata)
-            case _ if command in COMMANDS:
-                COMMANDS[command](metadata, user_input)
-            case _:
-                print(f"Функции {command} нет. Попробуйте снова.")
+        if command == CMD_EXIT:
+            break
+        if command == CMD_HELP:
+            print_help()
+        elif command == CMD_LIST_TABLES:
+            list_tables(metadata)
+        elif command in COMMANDS:
+            COMMANDS[command](metadata, user_input)
+        else:
+            print(f"Функции {command} нет. Попробуйте снова.")

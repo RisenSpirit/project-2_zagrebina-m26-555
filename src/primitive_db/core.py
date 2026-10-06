@@ -1,6 +1,16 @@
 import json
 
-from .constants import COLUMN_SEPARATOR, ID_COLUMN, ID_TYPE, TYPE_MAP, VALID_TYPES
+from .constants import (
+    COL_NAME_KEY,
+    COL_TYPE_KEY,
+    COLUMN_SEPARATOR,
+    COLUMNS_KEY,
+    ID_COLUMN,
+    ID_TYPE,
+    INT_TYPE,
+    TYPE_MAP,
+    VALID_TYPES,
+)
 from .decorators import confirm_action, create_cacher, handle_db_errors, log_time
 from .utils import load_table_data
 
@@ -9,7 +19,7 @@ select_cache = create_cacher()
 
 def format_columns(columns):
     """Возвращает строку вида 'ID:int, name:str'."""
-    return ", ".join(f'{c["name"]}{COLUMN_SEPARATOR}{c["type"]}' for c in columns)
+    return ", ".join(f'{c["name"]}{COLUMN_SEPARATOR}{c[COL_TYPE_KEY]}' for c in columns)
 
 
 @handle_db_errors
@@ -20,7 +30,7 @@ def create_table(metadata, table_name, columns):
     if not columns:
         raise ValueError("не указаны столбцы.")
 
-    parsed = [{"name": ID_COLUMN, "type": ID_TYPE}]
+    parsed = [{COL_NAME_KEY: ID_COLUMN, COL_TYPE_KEY: ID_TYPE}]
     seen = {ID_COLUMN}
     for col in columns:
         name, sep, col_type = col.partition(COLUMN_SEPARATOR)
@@ -30,9 +40,9 @@ def create_table(metadata, table_name, columns):
             raise ValueError(f"неподдерживаемый тип {col_type}. "
                              f"Допустимые типы: {', '.join(VALID_TYPES)}.")
         seen.add(name)
-        parsed.append({"name": name, "type": col_type})
+        parsed.append({COL_NAME_KEY: name, COL_TYPE_KEY: col_type})
 
-    metadata[table_name] = {"columns": parsed}
+    metadata[table_name] = {COLUMNS_KEY: parsed}
     print(f'Таблица "{table_name}" успешно создана со столбцами: '
           f"{format_columns(parsed)}")
     return metadata
@@ -61,7 +71,7 @@ def check_type(value, col_type):
     """
     Проверяет, что значение соответствует типу столбца.
     """
-    if col_type == "int":
+    if col_type == INT_TYPE:
         return isinstance(value, int) and not isinstance(value, bool)
     return isinstance(value, TYPE_MAP[col_type])
 
@@ -70,13 +80,14 @@ def get_columns(metadata, table_name):
     """Возвращает столбцы таблицы. KeyError, если таблицы нет."""
     if table_name not in metadata:
         raise KeyError(table_name)
-    return metadata[table_name]["columns"]
+    return metadata[table_name][COLUMNS_KEY]
 
 
 @handle_db_errors
 def check_clause(metadata, table_name, clause):
     """Проверяет, что столбцы условия существуют и типы значений верны."""
-    types = {c["name"]: c["type"] for c in get_columns(metadata, table_name)}
+    columns = get_columns(metadata, table_name)
+    types = {c[COL_NAME_KEY]: c[COL_TYPE_KEY] for c in columns}
     for col, value in clause.items():
         if col not in types:
             raise KeyError(col)
@@ -106,10 +117,10 @@ def insert(metadata, table_name, values):
 
     record = {}
     for col, value in zip(data_columns, values):
-        if not check_type(value, col["type"]):
+        if not check_type(value, col[COL_TYPE_KEY]):
             raise ValueError(f"значение {value!r} не подходит для столбца "
-                             f'{col["name"]}{COLUMN_SEPARATOR}{col["type"]}.')
-        record[col["name"]] = value
+                             f'{col[COL_NAME_KEY]}{COLUMN_SEPARATOR}{col[COL_TYPE_KEY]}.')
+        record[col[COL_NAME_KEY]] = value
 
     table_data = load_table_data(table_name)
     new_id = max((row[ID_COLUMN] for row in table_data), default=0) + 1
