@@ -1,12 +1,15 @@
 import json
 
+from .constants import COLUMN_SEPARATOR, ID_COLUMN, ID_TYPE, TYPE_MAP, VALID_TYPES
 from .decorators import confirm_action, create_cacher, handle_db_errors, log_time
 from .utils import load_table_data
 
-VALID_TYPES = {"int", "str", "bool"}
-TYPE_MAP = {"int": int, "str": str, "bool": bool}
-
 select_cache = create_cacher()
+
+
+def format_columns(columns):
+    """Возвращает строку вида 'ID:int, name:str'."""
+    return ", ".join(f'{c["name"]}{COLUMN_SEPARATOR}{c["type"]}' for c in columns)
 
 
 @handle_db_errors
@@ -17,23 +20,21 @@ def create_table(metadata, table_name, columns):
     if not columns:
         raise ValueError("не указаны столбцы.")
 
-    parsed = [{"name": "ID", "type": "int"}]
-    seen = {"ID"}
+    parsed = [{"name": ID_COLUMN, "type": ID_TYPE}]
+    seen = {ID_COLUMN}
     for col in columns:
-        if col.count(":") != 1:
+        name, sep, col_type = col.partition(COLUMN_SEPARATOR)
+        if not sep or not name or COLUMN_SEPARATOR in col_type or name in seen:
             raise ValueError(f"некорректный столбец {col}.")
-        name, col_type = col.split(":")
-        if not name or name in seen:
-            raise ValueError(f"некорректное имя столбца {col}.")
         if col_type not in VALID_TYPES:
             raise ValueError(f"неподдерживаемый тип {col_type}. "
-                             "Допустимые типы: int, str, bool.")
+                             f"Допустимые типы: {', '.join(VALID_TYPES)}.")
         seen.add(name)
         parsed.append({"name": name, "type": col_type})
 
     metadata[table_name] = {"columns": parsed}
-    cols_str = ", ".join(f'{c["name"]}:{c["type"]}' for c in parsed)
-    print(f'Таблица "{table_name}" успешно создана со столбцами: {cols_str}')
+    print(f'Таблица "{table_name}" успешно создана со столбцами: '
+          f"{format_columns(parsed)}")
     return metadata
 
 
@@ -41,8 +42,7 @@ def create_table(metadata, table_name, columns):
 @confirm_action("удаление таблицы")
 def drop_table(metadata, table_name):
     """Удаляет таблицу из метаданных."""
-    if table_name not in metadata:
-        raise KeyError(table_name)
+    get_columns(metadata, table_name)
     del metadata[table_name]
     print(f'Таблица "{table_name}" успешно удалена.')
     return metadata
@@ -58,7 +58,9 @@ def list_tables(metadata):
 
 
 def check_type(value, col_type):
-    """Проверяет, что значение соответствует типу столбца."""
+    """
+    Проверяет, что значение соответствует типу столбца.
+    """
     if col_type == "int":
         return isinstance(value, int) and not isinstance(value, bool)
     return isinstance(value, TYPE_MAP[col_type])
@@ -80,7 +82,7 @@ def check_clause(metadata, table_name, clause):
             raise KeyError(col)
         if not check_type(value, types[col]):
             raise ValueError(f"значение {value!r} не подходит для "
-                             f"столбца {col}:{types[col]}.")
+                             f"столбца {col}{COLUMN_SEPARATOR}{types[col]}.")
     return True
 
 
@@ -105,13 +107,13 @@ def insert(metadata, table_name, values):
     record = {}
     for col, value in zip(data_columns, values):
         if not check_type(value, col["type"]):
-            raise ValueError(f"значение {value!r} не подходит для "
-                             f'столбца {col["name"]}:{col["type"]}.')
+            raise ValueError(f"значение {value!r} не подходит для столбца "
+                             f'{col["name"]}{COLUMN_SEPARATOR}{col["type"]}.')
         record[col["name"]] = value
 
     table_data = load_table_data(table_name)
-    new_id = max((row["ID"] for row in table_data), default=0) + 1
-    table_data.append({"ID": new_id, **record})
+    new_id = max((row[ID_COLUMN] for row in table_data), default=0) + 1
+    table_data.append({ID_COLUMN: new_id, **record})
     print(f'Запись с ID={new_id} успешно добавлена в таблицу "{table_name}".')
     return table_data
 
@@ -127,6 +129,7 @@ def select(table_data, where_clause=None):
                      ensure_ascii=False)
 
     def compute():
+        """Выполняет выборку без кэша."""
         rows = find_rows(table_data, where_clause) if where_clause else table_data
         return [dict(row) for row in rows]
 
@@ -153,8 +156,7 @@ def delete(table_data, where_clause):
 def info(metadata, table_name, table_data):
     """Выводит информацию о таблице."""
     columns = get_columns(metadata, table_name)
-    cols_str = ", ".join(f'{c["name"]}:{c["type"]}' for c in columns)
     print(f"Таблица: {table_name}")
-    print(f"Столбцы: {cols_str}")
+    print(f"Столбцы: {format_columns(columns)}")
     print(f"Количество записей: {len(table_data)}")
     return True

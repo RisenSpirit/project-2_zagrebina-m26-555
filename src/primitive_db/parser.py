@@ -1,4 +1,18 @@
-def split_outside_quotes(text, sep=","):
+from .constants import (
+    ASSIGN_SIGN,
+    FALSE_VALUE,
+    KW_FROM,
+    KW_INTO,
+    KW_SET,
+    KW_VALUES,
+    KW_WHERE,
+    QUOTES,
+    TRUE_VALUE,
+    VALUES_SEPARATOR,
+)
+
+
+def split_outside_quotes(text, sep=VALUES_SEPARATOR):
     """Делит строку по разделителю, игнорируя разделители внутри кавычек."""
     parts, current, quote = [], [], None
     for ch in text:
@@ -6,7 +20,7 @@ def split_outside_quotes(text, sep=","):
             current.append(ch)
             if ch == quote:
                 quote = None
-        elif ch in ("'", '"'):
+        elif ch in QUOTES:
             quote = ch
             current.append(ch)
         elif ch == sep:
@@ -15,7 +29,7 @@ def split_outside_quotes(text, sep=","):
         else:
             current.append(ch)
     if quote:
-        raise ValueError("незакрытая кавычка")
+        raise ValueError("незакрытая кавычка.")
     parts.append("".join(current).strip())
     return parts
 
@@ -26,11 +40,11 @@ def parse_value(raw):
     "Sergei" -> 'Sergei', 28 -> 28, true -> True, false -> False.
     """
     raw = raw.strip()
-    if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in ("'", '"'):
+    if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in QUOTES:
         return raw[1:-1]
-    if raw.lower() == "true":
+    if raw.lower() == TRUE_VALUE:
         return True
-    if raw.lower() == "false":
+    if raw.lower() == FALSE_VALUE:
         return False
     try:
         return int(raw)
@@ -42,18 +56,16 @@ def parse_value(raw):
 def parse_values(text):
     """Разбирает список значений: '"Sergei", 28, true' -> ['Sergei', 28, True]."""
     parts = split_outside_quotes(text)
-    if any(p == "" for p in parts):
+    if any(part == "" for part in parts):
         raise ValueError(f"пустое значение в списке ({text}).")
-    return [parse_value(p) for p in parts]
+    return [parse_value(part) for part in parts]
 
 
 def parse_condition(text):
     """Разбирает 'столбец = значение' -> {'столбец': значение}."""
-    if "=" not in text:
-        raise ValueError(f"некорректное условие {text}.")
-    column, value = text.split("=", 1)
+    column, sign, value = text.partition(ASSIGN_SIGN)
     column, value = column.strip(), value.strip()
-    if not column or not value:
+    if not sign or not column or not value:
         raise ValueError(f"некорректное условие {text}.")
     return {column: parse_value(value)}
 
@@ -72,3 +84,54 @@ def parse_set(text):
     for part in split_outside_quotes(text):
         result.update(parse_condition(part))
     return result
+
+
+def command_error(text):
+    """Возвращает ошибку некорректного формата команды."""
+    return ValueError(f"некорректный формат команды: {text}")
+
+
+def parse_insert(text):
+    """insert into <таблица> values (<v1>, <v2>, ...) -> (таблица, [значения])."""
+    head, sep, tail = text.partition(KW_VALUES)
+    words, tail = head.split(), tail.strip()
+    if (not sep or len(words) != 3 or words[1] != KW_INTO
+            or not tail.startswith("(") or not tail.endswith(")")):
+        raise command_error(text)
+    return words[2], parse_values(tail[1:-1])
+
+
+def parse_select(text):
+    """select from <таблица> [where <столбец> = <значение>] -> (таблица, where)."""
+    head, sep, condition = text.partition(KW_WHERE)
+    words = head.split()
+    if len(words) != 3 or words[1] != KW_FROM:
+        raise command_error(text)
+    return words[2], parse_where(condition) if sep else None
+
+
+def parse_update(text):
+    """update <таблица> set <...> where <...> -> (таблица, set, where)."""
+    head, sep, rest = text.partition(KW_SET)
+    set_part, sep_where, condition = rest.partition(KW_WHERE)
+    words = head.split()
+    if not sep or not sep_where or len(words) != 2:
+        raise command_error(text)
+    return words[1], parse_set(set_part), parse_where(condition)
+
+
+def parse_delete(text):
+    """delete from <таблица> where <столбец> = <значение> -> (таблица, where)."""
+    head, sep, condition = text.partition(KW_WHERE)
+    words = head.split()
+    if not sep or len(words) != 3 or words[1] != KW_FROM:
+        raise command_error(text)
+    return words[2], parse_where(condition)
+
+
+def parse_info(text):
+    """info <таблица> -> таблица."""
+    words = text.split()
+    if len(words) != 2:
+        raise command_error(text)
+    return words[1]

@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "project_2-zagrebina-m26-555"
 version = "0.1.0"
-description = ""
+description = "Примитивная база данных с консольным интерфейсом: таблицы, CRUD-операции, хранение в JSON"
 authors = ["Victoria Zagrebina <seventeen.joker@gmail.com>"]
 readme = "README.md"
 packages = [
@@ -11,7 +11,10 @@ packages = [
 [tool.poetry.dependencies]
 python = ">=3.12"
 prompt = "^0.4.1"
-prettytable = "^3.18.0"
+prettytable = "^3.10"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.16.9"
 
 [tool.poetry.scripts]
 database = "primitive_db.main:main"
@@ -28,7 +31,3 @@ exclude = ["venv", ".venv", "dist", "__pycache__"]
 [tool.ruff.lint]
 select = ["E", "F", "I"]
 ignore = []
-[dependency-groups]
-dev = [
-    "ruff (>=0.16.9,<0.17.0)"
-]

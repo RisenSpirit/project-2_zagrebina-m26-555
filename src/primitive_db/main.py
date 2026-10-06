@@ -4,6 +4,7 @@ from .engine import run
 
 
 def main():
+    """Запускает примитивную базу данных."""
     run()
 
 
