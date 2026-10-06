@@ -35,25 +35,26 @@ def parse_value(raw):
     try:
         return int(raw)
     except ValueError:
-        raise ValueError(raw) from None
+        raise ValueError(f"некорректное значение {raw}. "
+                         "Строки должны быть в кавычках.") from None
 
 
 def parse_values(text):
     """Разбирает список значений: '"Sergei", 28, true' -> ['Sergei', 28, True]."""
     parts = split_outside_quotes(text)
     if any(p == "" for p in parts):
-        raise ValueError(text)
+        raise ValueError(f"пустое значение в списке ({text}).")
     return [parse_value(p) for p in parts]
 
 
 def parse_condition(text):
     """Разбирает 'столбец = значение' -> {'столбец': значение}."""
     if "=" not in text:
-        raise ValueError(text)
+        raise ValueError(f"некорректное условие {text}.")
     column, value = text.split("=", 1)
     column, value = column.strip(), value.strip()
     if not column or not value:
-        raise ValueError(text)
+        raise ValueError(f"некорректное условие {text}.")
     return {column: parse_value(value)}
 
 

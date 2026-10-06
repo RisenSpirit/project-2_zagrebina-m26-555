@@ -1,3 +1,7 @@
 .venv
 /data/
 /db_meta.json
+/.idea
+/dist
+/src/__pycache__
+/src/primitive_db/__pycache__

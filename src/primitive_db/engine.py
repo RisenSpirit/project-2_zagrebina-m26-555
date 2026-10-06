@@ -5,16 +5,19 @@ import prompt
 from prettytable import PrettyTable
 
 from .core import (
-    check_type,
+    check_clause,
     create_table,
     delete,
     drop_table,
+    find_rows,
+    get_columns,
     info,
     insert,
     list_tables,
     select,
     update,
 )
+from .decorators import handle_db_errors
 from .parser import parse_set, parse_values, parse_where
 from .utils import (
     delete_table_data,
@@ -56,30 +59,6 @@ def print_help():
     print("<command> help - справочная информация\n")
 
 
-def invalid(value):
-    print(f"Некорректное значение: {value}. Попробуйте снова.")
-
-
-def table_exists(metadata, table_name):
-    if table_name not in metadata:
-        print(f'Ошибка: Таблица "{table_name}" не существует.')
-        return False
-    return True
-
-
-def check_clause(metadata, table_name, clause):
-    """Проверяет, что столбцы из условия существуют и типы значений верны."""
-    types = {c["name"]: c["type"] for c in metadata[table_name]["columns"]}
-    for col, value in clause.items():
-        if col not in types:
-            print(f'Ошибка: Столбец "{col}" не существует.')
-            return False
-        if not check_type(value, types[col]):
-            invalid(f"{value!r} для столбца {col}:{types[col]}")
-            return False
-    return True
-
-
 def print_rows(metadata, table_name, rows):
     """Выводит записи в виде таблицы PrettyTable."""
     names = [c["name"] for c in metadata[table_name]["columns"]]
@@ -90,6 +69,30 @@ def print_rows(metadata, table_name, rows):
     print(table)
 
 
+@handle_db_errors
+def handle_create_table(metadata, args):
+    if not args:
+        raise ValueError("не указано имя таблицы.")
+    table_name = args[0]
+    if create_table(metadata, table_name, args[1:]) is None:
+        return
+    save_metadata(metadata)
+    save_table_data(table_name, [])
+
+
+@handle_db_errors
+def handle_drop_table(metadata, args):
+    if len(args) != 1:
+        raise ValueError("укажите одно имя таблицы.")
+    table_name = args[0]
+    get_columns(metadata, table_name)  # KeyError, если таблицы нет
+    if drop_table(metadata, table_name) is None:
+        return  # операция отменена
+    save_metadata(metadata)
+    delete_table_data(table_name)
+
+
+@handle_db_errors
 def handle_insert(metadata, match):
     table_name, values = match.group(1), parse_values(match.group(2))
     table_data = insert(metadata, table_name, values)
@@ -97,95 +100,80 @@ def handle_insert(metadata, match):
         save_table_data(table_name, table_data)
 
 
+@handle_db_errors
 def handle_select(metadata, match):
     table_name = match.group(1)
-    if not table_exists(metadata, table_name):
-        return
+    get_columns(metadata, table_name)
     where = parse_where(match.group(2)) if match.group(2) else None
     if where and not check_clause(metadata, table_name, where):
         return
     rows = select(load_table_data(table_name), where)
+    if rows is None:
+        return
     if not rows:
         print("Записи не найдены.")
         return
     print_rows(metadata, table_name, rows)
 
 
+@handle_db_errors
 def handle_update(metadata, match):
     table_name = match.group(1)
-    if not table_exists(metadata, table_name):
-        return
+    get_columns(metadata, table_name)
     set_clause, where = parse_set(match.group(2)), parse_where(match.group(3))
     if "ID" in set_clause:
-        print("Ошибка: Столбец ID нельзя изменить.")
-        return
+        raise ValueError("столбец ID нельзя изменить.")
     if not (check_clause(metadata, table_name, set_clause)
             and check_clause(metadata, table_name, where)):
         return
 
     table_data = load_table_data(table_name)
-    found = select(table_data, where)
-    if not found:
+    found_ids = [row["ID"] for row in find_rows(table_data, where)]
+    if not found_ids:
         print("Записи не найдены.")
         return
     table_data = update(table_data, set_clause, where)
+    if table_data is None:
+        return
     save_table_data(table_name, table_data)
-    for row in found:
-        print(f'Запись с ID={row["ID"]} в таблице "{table_name}" '
+    for row_id in found_ids:
+        print(f'Запись с ID={row_id} в таблице "{table_name}" '
               "успешно обновлена.")
 
 
+@handle_db_errors
 def handle_delete(metadata, match):
     table_name, where = match.group(1), parse_where(match.group(2))
-    if not table_exists(metadata, table_name):
-        return
+    get_columns(metadata, table_name)
     if not check_clause(metadata, table_name, where):
         return
 
     table_data = load_table_data(table_name)
-    found = select(table_data, where)
-    if not found:
+    found_ids = [row["ID"] for row in find_rows(table_data, where)]
+    if not found_ids:
         print("Записи не найдены.")
         return
     table_data = delete(table_data, where)
+    if table_data is None:
+        return  # операция отменена
     save_table_data(table_name, table_data)
-    for row in found:
-        print(f'Запись с ID={row["ID"]} успешно удалена из таблицы '
+    for row_id in found_ids:
+        print(f'Запись с ID={row_id} успешно удалена из таблицы '
               f'"{table_name}".')
 
 
-DATA_COMMANDS = {
+def handle_info(metadata, match):
+    table_name = match.group(1)
+    info(metadata, table_name, load_table_data(table_name))
+
+
+COMMANDS = {
     "insert": (INSERT_RE, handle_insert),
     "select": (SELECT_RE, handle_select),
     "update": (UPDATE_RE, handle_update),
     "delete": (DELETE_RE, handle_delete),
+    "info": (INFO_RE, handle_info),
 }
-
-
-def handle_table_command(command, user_input, metadata):
-    """Обрабатывает create_table и drop_table."""
-    try:
-        args = shlex.split(user_input)[1:]
-    except ValueError:
-        invalid(user_input)
-        return
-    if not args:
-        invalid("не указано имя таблицы")
-        return
-
-    if command == "create_table":
-        is_new = args[0] not in metadata
-        metadata = create_table(metadata, args[0], args[1:])
-        if is_new and args[0] in metadata:
-            save_table_data(args[0], [])
-    else:
-        if len(args) != 1:
-            invalid(user_input)
-            return
-        if args[0] in metadata:
-            delete_table_data(args[0])
-        metadata = drop_table(metadata, args[0])
-    save_metadata(metadata)
 
 
 def run():
@@ -208,26 +196,26 @@ def run():
 
         match command:
             case "create_table" | "drop_table":
-                handle_table_command(command, user_input, metadata)
+                try:
+                    args = shlex.split(user_input)[1:]
+                except ValueError:
+                    print(f"Некорректное значение: {user_input}. "
+                          "Попробуйте снова.")
+                    continue
+                if command == "create_table":
+                    handle_create_table(metadata, args)
+                else:
+                    handle_drop_table(metadata, args)
             case "list_tables":
                 list_tables(metadata)
-            case "insert" | "select" | "update" | "delete":
-                regex, handler = DATA_COMMANDS[command]
+            case "insert" | "select" | "update" | "delete" | "info":
+                regex, handler = COMMANDS[command]
                 match_obj = regex.match(user_input)
                 if not match_obj:
-                    invalid(user_input)
+                    print(f"Некорректное значение: {user_input}. "
+                          "Попробуйте снова.")
                     continue
-                try:
-                    handler(metadata, match_obj)
-                except ValueError:
-                    invalid(user_input)
-            case "info":
-                match_obj = INFO_RE.match(user_input)
-                if not match_obj:
-                    invalid(user_input)
-                    continue
-                table_name = match_obj.group(1)
-                info(metadata, table_name, load_table_data(table_name))
+                handler(metadata, match_obj)
             case "help":
                 print_help()
             case "exit":
